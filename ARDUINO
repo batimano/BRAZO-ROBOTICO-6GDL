@@ -1,0 +1,44 @@
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+// Inicializa el controlador con la dirección I2C por defecto (0x40)
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+// Valores de calibración de los pulsos del servo. 
+// Dependiendo de tus servos (ej. SG90 o MG996R), puede que necesites ajustar estos valores.
+#define SERVOMIN  150 // Pulso mínimo (equivale a 0 grados)
+#define SERVOMAX  600 // Pulso máximo (equivale a 180 grados)
+
+void setup() {
+  Serial.begin(9600);
+  Serial.println("Iniciando control de brazo robótico...");
+  
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(60);  // Los servos analógicos estándar corren a ~60 Hz
+  delay(10);
+}
+
+void loop() {
+  // Verifica si hay datos disponibles en el puerto Serial
+  if (Serial.available() > 0) {
+    // Lee hasta encontrar un salto de línea
+    String command = Serial.readStringUntil('\n'); 
+    
+    // Busca la posición de la coma que separa el número de servo y el ángulo
+    int commaIndex = command.indexOf(',');
+    
+    if (commaIndex != -1) {
+      // Extrae el ID del servo y el ángulo del texto recibido
+      int servoNum = command.substring(0, commaIndex).toInt();
+      int angle = command.substring(commaIndex + 1).toInt();
+
+      // Validación de seguridad (6 servos, ángulos de 0 a 180)
+      if (servoNum >= 0 && servoNum <= 5 && angle >= 0 && angle <= 180) {
+        // Mapea el ángulo (0-180) al rango de pulsos PWM (150-600)
+        int pulse = map(angle, 0, 180, SERVOMIN, SERVOMAX);
+        pwm.setPWM(servoNum, 0, pulse);
+      }
+    }
+  }
+}
