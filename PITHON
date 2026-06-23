@@ -1,0 +1,123 @@
+import tkinter as tk
+from tkinter import messagebox
+import serial
+import time
+
+# --- CONFIGURACIÓN ---
+PUERTO_COM = 'COM3' # <-- ¡Asegúrate de poner tu puerto aquí!
+BAUD_RATE = 9600
+
+# Intentar conectar con Arduino
+try:
+    arduino = serial.Serial(PUERTO_COM, BAUD_RATE, timeout=1)
+    time.sleep(2) 
+    print("Conexión exitosa con Arduino.")
+except Exception as e:
+    print(f"Error de conexión: {e}")
+    arduino = None
+
+secuencia_guardada = []
+
+# --- FUNCIONES ---
+def mover_servo(servo_id, angulo):
+    if arduino:
+        comando = f"{servo_id},{angulo}\n"
+        arduino.write(comando.encode('utf-8'))
+
+def actualizar_servo(event, servo_id, slider):
+    angulo = slider.get()
+    mover_servo(servo_id, angulo)
+
+def guardar_posicion():
+    posicion_actual = [slider.get() for slider in sliders]
+    secuencia_guardada.append(posicion_actual)
+    lista_posiciones.insert(tk.END, f"Posición {len(secuencia_guardada)}: {posicion_actual}")
+
+def ejecutar_secuencia():
+    if not secuencia_guardada:
+        messagebox.showwarning("Vacío", "No hay posiciones guardadas en la secuencia.")
+        return
+        
+    pasos_interpolacion = 40 # En cuántos "pasitos" se divide el movimiento
+    pausa_ms = slider_velocidad.get() / 1000.0 # Tiempo entre cada pasito (controla la velocidad)
+    
+    # Leer dónde están los motores justo ahora
+    posicion_actual = [slider.get() for slider in sliders]
+    
+    for i, posicion_objetivo in enumerate(secuencia_guardada):
+        lista_posiciones.selection_clear(0, tk.END)
+        lista_posiciones.selection_set(i)
+        lista_posiciones.see(i)
+        
+        # --- BUCLE DE MOVIMIENTO SUAVE (INTERPOLACIÓN) ---
+        for paso in range(1, pasos_interpolacion + 1):
+            for servo_id in range(6):
+                ang_ini = posicion_actual[servo_id]
+                ang_fin = posicion_objetivo[servo_id]
+                
+                # Fórmula matemática para calcular el ángulo intermedio
+                ang_intermedio = int(ang_ini + ((ang_fin - ang_ini) * paso / pasos_interpolacion))
+                
+                sliders[servo_id].set(ang_intermedio) # Mueve la barra de la interfaz
+                mover_servo(servo_id, ang_intermedio) # Mueve el motor físico
+            
+            ventana.update() # Refresca la interfaz gráfica
+            time.sleep(pausa_ms) # La pausa que define la velocidad
+            
+        # Actualiza la posición de inicio para el siguiente movimiento de la secuencia
+        posicion_actual = list(posicion_objetivo) 
+        time.sleep(0.5) # Pausa de medio segundo al llegar al punto guardado
+
+def limpiar_secuencia():
+    secuencia_guardada.clear()
+    lista_posiciones.delete(0, tk.END)
+
+# --- INTERFAZ GRÁFICA (Tkinter) ---
+ventana = tk.Tk()
+ventana.title("Control Panel - Brazo Robótico (6 DOF)")
+ventana.geometry("450x750") # Ventana un poco más alta
+ventana.configure(padx=20, pady=20)
+
+tk.Label(ventana, text="Control Individual de Servos", font=("Arial", 14, "bold")).pack(pady=5)
+
+nombres_articulaciones = ["0: Base", "1: Hombro", "2: Codo", "3: Muñeca (Pitch)", "4: Muñeca (Roll)", "5: Pinza"]
+sliders = []
+
+frame_controles = tk.Frame(ventana)
+frame_controles.pack()
+
+for i in range(6):
+    frame_motor = tk.Frame(frame_controles)
+    frame_motor.pack(fill="x", pady=5)
+    tk.Label(frame_motor, text=nombres_articulaciones[i], width=15, anchor="w").pack(side="left")
+    
+    slider = tk.Scale(frame_motor, from_=0, to=180, orient="horizontal", length=200)
+    slider.set(90) 
+    slider.bind("<ButtonRelease-1>", lambda event, s_id=i, sl=slider: actualizar_servo(event, s_id, sl))
+    slider.pack(side="right")
+    sliders.append(slider)
+
+# --- NUEVO: CONTROL DE VELOCIDAD ---
+tk.Label(ventana, text="Ajuste de Velocidad de la Secuencia", font=("Arial", 12, "bold")).pack(pady=(15, 5))
+tk.Label(ventana, text="(Menos tiempo = Movimiento más rápido)").pack()
+
+# Deslizador que ajusta los milisegundos de pausa entre cada paso
+slider_velocidad = tk.Scale(ventana, from_=2, to=60, orient="horizontal", length=250)
+slider_velocidad.set(15) # Velocidad por defecto (15 ms)
+slider_velocidad.pack(pady=5)
+
+# --- SECCIÓN DE MEMORIA ---
+frame_botones = tk.Frame(ventana)
+frame_botones.pack(pady=10)
+
+tk.Button(frame_botones, text="Guardar Posición", bg="#4CAF50", fg="white", command=guardar_posicion).grid(row=0, column=0, padx=5)
+tk.Button(frame_botones, text="Ejecutar Secuencia", bg="#2196F3", fg="white", command=ejecutar_secuencia).grid(row=0, column=1, padx=5)
+tk.Button(frame_botones, text="Limpiar", bg="#f44336", fg="white", command=limpiar_secuencia).grid(row=0, column=2, padx=5)
+
+lista_posiciones = tk.Listbox(ventana, height=6, width=50)
+lista_posiciones.pack(pady=5)
+
+ventana.mainloop()
+
+if arduino:
+    arduino.close()
